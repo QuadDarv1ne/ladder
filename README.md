@@ -8,7 +8,7 @@
 
 *Ladder is a http web proxy.* 
 
-[简体中文](README.zh-CN.md)
+[简体中文](README.zh-CN.md) | [Русский](README.ru-RU.md)
 
 Ladder is a developer tool for testing and analyzing paywall implementations and content delivery behavior on modern websites.
 

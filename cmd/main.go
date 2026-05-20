@@ -110,11 +110,14 @@ func main() {
 
 	userpass := os.Getenv("USERPASS")
 	if userpass != "" {
-		userpass := strings.Split(userpass, ":")
+		parts := strings.SplitN(userpass, ":", 2)
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+			log.Fatal("USERPASS must be in the format 'username:password'")
+		}
 
 		app.Use(basicauth.New(basicauth.Config{
 			Users: map[string]string{
-				userpass[0]: userpass[1],
+				parts[0]: parts[1],
 			},
 		}))
 	}

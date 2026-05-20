@@ -187,18 +187,17 @@ func ProxySite(rulesetPath string) fiber.Handler {
 		// Get the url from the URL
 		url, err := extractUrl(c)
 		if err != nil {
-			log.Println("ERROR In URL extraction:", err)
+			log.Println("ERROR in URL extraction:", err)
+			return c.Status(fiber.StatusBadRequest).SendString(err.Error())
 		}
 
 		queries := c.Queries()
 		body, _, resp, err := fetchSite(url, queries)
 		if err != nil {
 			log.Println("ERROR:", err)
-			c.SendStatus(fiber.StatusInternalServerError)
-			return c.SendString(err.Error())
+			return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
 		}
 
-		c.Cookie(&fiber.Cookie{})
 		c.Set("Content-Type", resp.Header.Get("Content-Type"))
 		c.Set("Content-Security-Policy", resp.Header.Get("Content-Security-Policy"))
 
@@ -360,7 +359,7 @@ func rewriteHtml(bodyB []byte, u *url.URL, rule ruleset.Rule) string {
 	// scripts
 	scriptPattern := `<script\s+([^>]*\s+)?src="(/)([^"]*)"`
 	reScript := regexp.MustCompile(scriptPattern)
-	body = reScript.ReplaceAllString(body, fmt.Sprintf(`<script $1 script="%s$3"`, proxyPrefix))
+	body = reScript.ReplaceAllString(body, fmt.Sprintf(`<script $1 src="%s$3"`, proxyPrefix))
 
 	// body = strings.ReplaceAll(body, "srcset=\"/", "srcset=\""+proxyPrefix) // TODO: Needs a regex to rewrite the URL's
 	body = strings.ReplaceAll(body, "href=\"/", "href=\""+proxyPrefix)
@@ -382,7 +381,6 @@ func fetchRule(domain string, path string) ruleset.Rule {
 	if len(rulesSet) == 0 {
 		return ruleset.Rule{}
 	}
-	rule := ruleset.Rule{}
 	for _, rule := range rulesSet {
 		domains := rule.Domains
 		if rule.Domain != "" {
@@ -398,7 +396,7 @@ func fetchRule(domain string, path string) ruleset.Rule {
 			}
 		}
 	}
-	return rule
+	return ruleset.Rule{}
 }
 
 func applyRules(body string, rule ruleset.Rule) string {

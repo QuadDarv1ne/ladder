@@ -1,0 +1,42 @@
+# Git
+.git
+.gitignore
+
+# CI/CD
+.github
+
+# Docker
+Dockerfile
+docker-compose.yaml
+.dockerignore
+
+# Build artifacts
+bin/
+*.exe
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*~
+
+# Docs
+README*.md
+ladder.png
+LICENSE*
+
+# Helm
+helm-chart/
+
+# Node.js (Tailwind build deps)
+node_modules/
+package.json
+package-lock.json
+tailwind.config.js
+
+# Test files
+*_test.go
+.air.toml
+
+# Goreleaser
+.goreleaser.yaml

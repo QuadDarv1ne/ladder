@@ -16,8 +16,9 @@ WORKDIR /app
 
 COPY --from=build /go/src/ladder/ladder .
 
-#EXPOSE 8080
+EXPOSE 8080
 
-#ENTRYPOINT ["/usr/bin/dumb-init", "--"]
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD ["/app/ladder", "--help"] || exit 1
 
 ENTRYPOINT ["/app/ladder"]

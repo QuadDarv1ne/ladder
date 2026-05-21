@@ -72,7 +72,10 @@ func normalizeBasePath(p string) string {
 }
 
 func init() {
-	allowedDomains = strings.Split(os.Getenv("ALLOWED_DOMAINS"), ",")
+	allowedDomainsStr := os.Getenv("ALLOWED_DOMAINS")
+	if allowedDomainsStr != "" {
+		allowedDomains = strings.Split(allowedDomainsStr, ",")
+	}
 	if os.Getenv("ALLOWED_DOMAINS_RULESET") == "true" {
 		allowedDomains = append(allowedDomains, rulesSet.Domains()...)
 	}
@@ -242,14 +245,14 @@ func modifyURL(uri string, rule ruleset.Rule) (string, error) {
 }
 
 func fetchSite(urlpath string, queries map[string]string) (string, *http.Request, *http.Response, error) {
-	urlQuery := "?"
-	if len(queries) > 0 {
-		for k, v := range queries {
-			urlQuery += k + "=" + v + "&"
+	// Build query string with proper URL encoding
+	v := url.Values{}
+	for k, vals := range queries {
+		for _, val := range strings.Split(vals, ",") {
+			v.Add(k, val)
 		}
 	}
-	urlQuery = strings.TrimSuffix(urlQuery, "&")
-	urlQuery = strings.TrimSuffix(urlQuery, "?")
+	urlQuery := v.Encode()
 
 	u, err := url.Parse(urlpath)
 	if err != nil {
@@ -275,7 +278,10 @@ func fetchSite(urlpath string, queries map[string]string) (string, *http.Request
 	client := &http.Client{
 		Timeout: time.Second * time.Duration(defaultTimeout),
 	}
-	req, _ := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", nil, nil, fmt.Errorf("failed to create request for URL %q: %w", url, err)
+	}
 
 	if rule.Headers.UserAgent != "" {
 		req.Header.Set("User-Agent", rule.Headers.UserAgent)
@@ -342,6 +348,10 @@ func fetchSite(urlpath string, queries map[string]string) (string, *http.Request
 
 	// log.Print("rule", rule) TODO: Add a debug mode to print the rule
 	body := rewriteHtml(bodyB, u, rule)
+	body, err = applyRules(body, rule)
+	if err != nil {
+		log.Printf("WARNING: applyRules error: %v", err)
+	}
 	return body, req, resp, nil
 }
 
@@ -361,7 +371,12 @@ func rewriteHtml(bodyB []byte, u *url.URL, rule ruleset.Rule) string {
 	reScript := regexp.MustCompile(scriptPattern)
 	body = reScript.ReplaceAllString(body, fmt.Sprintf(`<script $1 src="%s$3"`, proxyPrefix))
 
-	// body = strings.ReplaceAll(body, "srcset=\"/", "srcset=\""+proxyPrefix) // TODO: Needs a regex to rewrite the URL's
+	// srcset: rewrite URLs in srcset attributes for responsive images
+	// matches srcset="/path 1x" or srcset="/path 500w" etc.
+	srcsetPattern := `srcset="(/[^"]*)"`
+	reSrcset := regexp.MustCompile(srcsetPattern)
+	body = reSrcset.ReplaceAllString(body, fmt.Sprintf(`srcset="%s$1"`, proxyPrefix))
+
 	body = strings.ReplaceAll(body, "href=\"/", "href=\""+proxyPrefix)
 	body = strings.ReplaceAll(body, "url('/", "url('"+proxyPrefix)
 	body = strings.ReplaceAll(body, "url(/", "url("+proxyPrefix)
@@ -399,9 +414,9 @@ func fetchRule(domain string, path string) ruleset.Rule {
 	return ruleset.Rule{}
 }
 
-func applyRules(body string, rule ruleset.Rule) string {
+func applyRules(body string, rule ruleset.Rule) (string, error) {
 	if len(rulesSet) == 0 {
-		return body
+		return body, nil
 	}
 
 	for _, regexRule := range rule.RegexRules {
@@ -411,7 +426,7 @@ func applyRules(body string, rule ruleset.Rule) string {
 	for _, injection := range rule.Injections {
 		doc, err := goquery.NewDocumentFromReader(strings.NewReader(body))
 		if err != nil {
-			log.Fatal(err)
+			return body, fmt.Errorf("applyRules: failed to parse HTML for injection: %w", err)
 		}
 		if injection.Replace != "" {
 			doc.Find(injection.Position).ReplaceWithHtml(injection.Replace)
@@ -424,11 +439,11 @@ func applyRules(body string, rule ruleset.Rule) string {
 		}
 		body, err = doc.Html()
 		if err != nil {
-			log.Fatal(err)
+			return body, fmt.Errorf("applyRules: failed to render HTML after injection: %w", err)
 		}
 	}
 
-	return body
+	return body, nil
 }
 
 func StringInSlice(s string, list []string) bool {

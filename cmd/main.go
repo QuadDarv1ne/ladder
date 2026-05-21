@@ -26,7 +26,7 @@ func main() {
 	parser := argparse.NewParser("ladder", "Every Wall needs a Ladder")
 
 	portEnv := os.Getenv("PORT")
-	if os.Getenv("PORT") == "" {
+	if portEnv == "" {
 		portEnv = "8080"
 	}
 
@@ -64,6 +64,7 @@ func main() {
 	err := parser.Parse(os.Args)
 	if err != nil {
 		fmt.Print(parser.Usage(err))
+		os.Exit(1)
 	}
 
 	// utility cli flag to compile ruleset directory into single ruleset.yaml

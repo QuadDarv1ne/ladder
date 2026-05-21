@@ -59,6 +59,11 @@ var (
 	allowedDomains   = []string{}
 	defaultTimeout   = 15 // in seconds
 	basePath         = normalizeBasePath(os.Getenv("BASE_PATH"))
+
+	// Precompiled regexes for HTML rewriting
+	imgSrcRegex    = regexp.MustCompile(`<img\s+([^>]*\s+)?src="(/)([^"]*)"`)
+	scriptSrcRegex = regexp.MustCompile(`<script\s+([^>]*\s+)?src="(/)([^"]*)"`)
+	srcsetRegex    = regexp.MustCompile(`srcset="(/[^"]*)"`)
 )
 
 func normalizeBasePath(p string) string {
@@ -80,7 +85,11 @@ func init() {
 		allowedDomains = append(allowedDomains, rulesSet.Domains()...)
 	}
 	if timeoutStr := os.Getenv("HTTP_TIMEOUT"); timeoutStr != "" {
-		defaultTimeout, _ = strconv.Atoi(timeoutStr)
+		if timeout, err := strconv.Atoi(timeoutStr); err == nil {
+			defaultTimeout = timeout
+		} else {
+			log.Printf("WARN: invalid HTTP_TIMEOUT value %q, using default %ds", timeoutStr, defaultTimeout)
+		}
 	}
 }
 
@@ -362,20 +371,13 @@ func rewriteHtml(bodyB []byte, u *url.URL, rule ruleset.Rule) string {
 	proxyPrefix := basePath + "/https://" + u.Host + "/"
 
 	// images
-	imagePattern := `<img\s+([^>]*\s+)?src="(/)([^"]*)"`
-	re := regexp.MustCompile(imagePattern)
-	body = re.ReplaceAllString(body, fmt.Sprintf(`<img $1 src="%s$3"`, proxyPrefix))
+	body = imgSrcRegex.ReplaceAllString(body, fmt.Sprintf(`<img $1 src="%s$3"`, proxyPrefix))
 
 	// scripts
-	scriptPattern := `<script\s+([^>]*\s+)?src="(/)([^"]*)"`
-	reScript := regexp.MustCompile(scriptPattern)
-	body = reScript.ReplaceAllString(body, fmt.Sprintf(`<script $1 src="%s$3"`, proxyPrefix))
+	body = scriptSrcRegex.ReplaceAllString(body, fmt.Sprintf(`<script $1 src="%s$3"`, proxyPrefix))
 
 	// srcset: rewrite URLs in srcset attributes for responsive images
-	// matches srcset="/path 1x" or srcset="/path 500w" etc.
-	srcsetPattern := `srcset="(/[^"]*)"`
-	reSrcset := regexp.MustCompile(srcsetPattern)
-	body = reSrcset.ReplaceAllString(body, fmt.Sprintf(`srcset="%s$1"`, proxyPrefix))
+	body = srcsetRegex.ReplaceAllString(body, fmt.Sprintf(`srcset="%s$1"`, proxyPrefix))
 
 	body = strings.ReplaceAll(body, "href=\"/", "href=\""+proxyPrefix)
 	body = strings.ReplaceAll(body, "url('/", "url('"+proxyPrefix)

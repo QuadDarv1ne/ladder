@@ -105,14 +105,14 @@ func NewRuleset(rulePaths string) (RuleSet, error) {
 	}
 
 	if len(errs) != 0 {
-		e := fmt.Errorf("WARN: failed to load %d rulesets", len(rp))
+		e := fmt.Errorf("WARN: failed to load %d rulesets", len(errs))
 		errs = append(errs, e)
 
 		// panic if the user specified a local ruleset, but it wasn't found on disk
 		// don't fail silently
 		for _, err := range errs {
-			if errors.Is(os.ErrNotExist, err) {
-				e := fmt.Errorf("PANIC: ruleset '%s' not found", err)
+			if errors.Is(err, os.ErrNotExist) {
+				e := fmt.Errorf("PANIC: ruleset '%s' not found", rulePaths)
 				panic(errors.Join(e, err))
 			}
 		}

@@ -78,6 +78,7 @@ func main() {
 				fmt.Println(err)
 				os.Exit(1)
 			}
+			defer output.Close()
 		}
 
 		err = cli.HandleRulesetMerge(*ruleset, *mergeRulesets, *mergeRulesetsGzip, output)

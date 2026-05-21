@@ -29,14 +29,12 @@ func HandleRulesetMerge(rulesetPath string, mergeRulesets bool, useGzip bool, ou
 	}
 
 	if rulesetPath == "" {
-		fmt.Println("error: no ruleset provided. Try again with --ruleset <ruleset.yaml>")
-		os.Exit(1)
+		return fmt.Errorf("no ruleset provided. Try again with --ruleset <ruleset.yaml>")
 	}
 
 	rs, err := ruleset.NewRuleset(rulesetPath)
 	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+		return fmt.Errorf("failed to load ruleset: %w", err)
 	}
 
 	if useGzip {
@@ -55,12 +53,15 @@ func HandleRulesetMerge(rulesetPath string, mergeRulesets bool, useGzip bool, ou
 // Returns:
 // - An error if compression or writing fails, otherwise nil.
 func gzipMerge(rs ruleset.RuleSet, output io.Writer) error {
-	gzip, err := rs.GzipYaml()
+	gzipReader, err := rs.GzipYaml()
 	if err != nil {
 		return err
 	}
 
-	_, err = io.Copy(output, gzip)
+	_, err = io.Copy(output, gzipReader)
+	if closer, ok := gzipReader.(io.Closer); ok {
+		closer.Close()
+	}
 	return err
 }
 
@@ -81,7 +82,7 @@ func yamlMerge(rs ruleset.RuleSet, output io.Writer) error {
 
 	if output == nil {
 		fmt.Println(yaml)
-		os.Exit(0)
+		return nil
 	}
 
 	_, err = io.WriteString(output, yaml)

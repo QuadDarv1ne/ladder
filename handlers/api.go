@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	_ "embed"
 	"log"
 
 	"github.com/gofiber/fiber/v2"
@@ -46,17 +45,25 @@ func Api(c *fiber.Ctx) error {
 
 	response.Request.Headers = make([]any, 0, len(req.Header))
 	for k, v := range req.Header {
+		val := ""
+		if len(v) > 0 {
+			val = v[0]
+		}
 		response.Request.Headers = append(response.Request.Headers, map[string]string{
 			"key":   k,
-			"value": v[0],
+			"value": val,
 		})
 	}
 
 	response.Response.Headers = make([]any, 0, len(resp.Header))
 	for k, v := range resp.Header {
+		val := ""
+		if len(v) > 0 {
+			val = v[0]
+		}
 		response.Response.Headers = append(response.Response.Headers, map[string]string{
 			"key":   k,
-			"value": v[0],
+			"value": val,
 		})
 	}
 

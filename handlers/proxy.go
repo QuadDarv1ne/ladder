@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"ladder/pkg/ruleset"
@@ -56,9 +57,27 @@ var (
 	ForwardedFor     = getenv("X_FORWARDED_FOR", "66.249.66.1")
 	flareSolverrHost = os.Getenv("FLARESOLVERR_HOST")
 	rulesSet         = ruleset.NewRulesetFromEnv()
+	rulesSetMu       sync.RWMutex
 	allowedDomains   = []string{}
 	defaultTimeout   = 15 // in seconds
 	basePath         = normalizeBasePath(os.Getenv("BASE_PATH"))
+	logURLs          = os.Getenv("LOG_URLS") == "true"
+
+	// Shared HTTP client with connection pooling and redirect limiting
+	httpClient = &http.Client{
+		Timeout: time.Second * time.Duration(defaultTimeout),
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return fmt.Errorf("stopped after 10 redirects")
+			}
+			return nil
+		},
+		Transport: &http.Transport{
+			MaxIdleConns:        100,
+			MaxIdleConnsPerHost: 10,
+			IdleConnTimeout:     90 * time.Second,
+		},
+	}
 
 	// Precompiled regexes for HTML rewriting
 	imgSrcRegex    = regexp.MustCompile(`<img\s+([^>]*\s+)?src="(/)([^"]*)"`)
@@ -133,7 +152,7 @@ func extractUrl(c *fiber.Ctx) (string, error) {
 			RawQuery: urlQuery.RawQuery,
 		}
 
-		if os.Getenv("LOG_URLS") == "true" {
+		if logURLs {
 			log.Printf("modified relative URL: '%s' -> '%s'", reqUrl, fullUrl.String())
 		}
 		return fullUrl.String(), nil
@@ -192,7 +211,9 @@ func ProxySite(rulesetPath string) fiber.Handler {
 		if err != nil {
 			panic(err)
 		}
+		rulesSetMu.Lock()
 		rulesSet = rs
+		rulesSetMu.Unlock()
 	}
 
 	return func(c *fiber.Ctx) error {
@@ -272,7 +293,7 @@ func fetchSite(urlpath string, queries map[string]string) (string, *http.Request
 		return "", nil, nil, fmt.Errorf("domain not allowed. %s not in %s", u.Host, allowedDomains)
 	}
 
-	if os.Getenv("LOG_URLS") == "true" {
+	if logURLs {
 		log.Println(u.String() + urlQuery)
 	}
 
@@ -284,9 +305,6 @@ func fetchSite(urlpath string, queries map[string]string) (string, *http.Request
 	}
 
 	// Fetch the site
-	client := &http.Client{
-		Timeout: time.Second * time.Duration(defaultTimeout),
-	}
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return "", nil, nil, fmt.Errorf("failed to create request for URL %q: %w", url, err)
@@ -316,7 +334,7 @@ func fetchSite(urlpath string, queries map[string]string) (string, *http.Request
 
 	// Handle FlareSolverr integration
 	cookieValue := rule.Headers.Cookie
-	debug := os.Getenv("LOG_URLS") == "true"
+	debug := logURLs
 
 	if rule.UseFlareSolverr && flareSolverrHost != "" {
 		if fsCookies, err := getFlareSolverrCookies(url); err == nil {
@@ -337,7 +355,7 @@ func fetchSite(urlpath string, queries map[string]string) (string, *http.Request
 		req.Header.Set("Cookie", cookieValue)
 	}
 
-	resp, err := client.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return "", nil, nil, err
 	}
@@ -395,10 +413,14 @@ func getenv(key, fallback string) string {
 }
 
 func fetchRule(domain string, path string) ruleset.Rule {
-	if len(rulesSet) == 0 {
+	rulesSetMu.RLock()
+	rs := rulesSet
+	rulesSetMu.RUnlock()
+
+	if len(rs) == 0 {
 		return ruleset.Rule{}
 	}
-	for _, rule := range rulesSet {
+	for _, rule := range rs {
 		domains := rule.Domains
 		if rule.Domain != "" {
 			domains = append(domains, rule.Domain)
@@ -417,7 +439,11 @@ func fetchRule(domain string, path string) ruleset.Rule {
 }
 
 func applyRules(body string, rule ruleset.Rule) (string, error) {
-	if len(rulesSet) == 0 {
+	rulesSetMu.RLock()
+	rs := rulesSet
+	rulesSetMu.RUnlock()
+
+	if len(rs) == 0 {
 		return body, nil
 	}
 
@@ -455,4 +481,13 @@ func StringInSlice(s string, list []string) bool {
 		}
 	}
 	return false
+}
+
+// GetRuleset returns a thread-safe snapshot of the current ruleset
+func GetRuleset() ruleset.RuleSet {
+	rulesSetMu.RLock()
+	defer rulesSetMu.RUnlock()
+	rs := make(ruleset.RuleSet, len(rulesSet))
+	copy(rs, rulesSet)
+	return rs
 }

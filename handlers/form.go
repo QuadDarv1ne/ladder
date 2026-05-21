@@ -11,6 +11,8 @@ import (
 //go:embed form.html
 var formHtml string
 
+var disableForm = os.Getenv("DISABLE_FORM") == "true"
+
 func init() {
 	if formPath := os.Getenv("FORM_PATH"); formPath != "" {
 		dat, err := os.ReadFile(formPath)
@@ -23,7 +25,7 @@ func init() {
 }
 
 func Form(c *fiber.Ctx) error {
-	if os.Getenv("DISABLE_FORM") == "true" {
+	if disableForm {
 		c.Set("Content-Type", "text/html")
 		return c.Status(fiber.StatusNotFound).SendString("Form Disabled")
 	}

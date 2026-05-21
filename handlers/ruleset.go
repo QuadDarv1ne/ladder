@@ -7,12 +7,14 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+var exposeRuleset = os.Getenv("EXPOSE_RULESET") != "false"
+
 func Ruleset(c *fiber.Ctx) error {
-	if os.Getenv("EXPOSE_RULESET") == "false" {
+	if !exposeRuleset {
 		return c.Status(fiber.StatusForbidden).SendString("Rules Disabled")
 	}
 
-	body, err := yaml.Marshal(rulesSet)
+	body, err := yaml.Marshal(GetRuleset())
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
 	}

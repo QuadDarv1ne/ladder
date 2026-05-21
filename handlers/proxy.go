@@ -221,6 +221,7 @@ func ProxySite(rulesetPath string) fiber.Handler {
 		url, err := extractUrl(c)
 		if err != nil {
 			log.Println("ERROR in URL extraction:", err)
+			c.Set("Content-Type", "text/plain")
 			return c.Status(fiber.StatusBadRequest).SendString(err.Error())
 		}
 
@@ -228,11 +229,15 @@ func ProxySite(rulesetPath string) fiber.Handler {
 		body, _, resp, err := fetchSite(url, queries)
 		if err != nil {
 			log.Println("ERROR:", err)
+			c.Set("Content-Type", "text/plain")
 			return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
 		}
 
 		c.Set("Content-Type", resp.Header.Get("Content-Type"))
-		c.Set("Content-Security-Policy", resp.Header.Get("Content-Security-Policy"))
+		// Only forward CSP if explicitly set by ruleset (fetchSite already stripped the original)
+		if csp := resp.Header.Get("Content-Security-Policy"); csp != "" {
+			c.Set("Content-Security-Policy", csp)
+		}
 
 		return c.SendString(body)
 	}
@@ -476,7 +481,7 @@ func applyRules(body string, rule ruleset.Rule) (string, error) {
 
 func StringInSlice(s string, list []string) bool {
 	for _, x := range list {
-		if strings.HasPrefix(s, x) {
+		if s == x {
 			return true
 		}
 	}

@@ -14,7 +14,9 @@ func Raw(c *fiber.Ctx) error {
 	body, _, _, err := fetchSite(urlQuery, queries)
 	if err != nil {
 		log.Println("ERROR:", err)
+		c.Set("Content-Type", "text/plain")
 		return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
 	}
+	c.Set("Content-Type", "text/plain")
 	return c.SendString(body)
 }

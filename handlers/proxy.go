@@ -458,6 +458,12 @@ func fetchSite(urlpath string, queries map[string]string) (string, *http.Request
 		req.Header.Set("Referer", u.String())
 	}
 
+	// Default headers for better emulation
+	req.Header.Set("Accept", "*/*")
+	req.Header.Set("Accept-Encoding", "gzip, deflate, br")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
+	req.Header.Set("From", "bingbot(at)microsoft.com")
+
 	// Handle FlareSolverr integration
 	cookieValue := rule.Headers.Cookie
 	debug := logURLs

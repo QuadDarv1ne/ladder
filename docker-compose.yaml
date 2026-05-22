@@ -20,6 +20,13 @@ services:
       #- LOG_URLS=true
       #- GODEBUG=netdns=go
       #- FLARESOLVERR_HOST=http://flaresolverr:8191
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - apparmor:runtime/default
+    tmpfs:
+      - /tmp
     ports:
       - "8080:8080"
     volumes:

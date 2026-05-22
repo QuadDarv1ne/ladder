@@ -163,6 +163,7 @@ func main() {
 	})
 
 	router.Get("/health", handlers.Health)
+	router.Get("/healthz", handlers.Health)
 	router.Get("/ruleset", handlers.Ruleset)
 	router.Get("/raw/*", handlers.Raw)
 	router.Post("/api", handlers.Api)

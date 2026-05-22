@@ -106,6 +106,7 @@ func init() {
 	if timeoutStr := os.Getenv("HTTP_TIMEOUT"); timeoutStr != "" {
 		if timeout, err := strconv.Atoi(timeoutStr); err == nil {
 			defaultTimeout = timeout
+			httpClient.Timeout = time.Second * time.Duration(timeout)
 		} else {
 			log.Printf("WARN: invalid HTTP_TIMEOUT value %q, using default %ds", timeoutStr, defaultTimeout)
 		}

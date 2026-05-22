@@ -112,6 +112,7 @@ func main() {
 	)
 
 	userpass := os.Getenv("USERPASS")
+	shareSecret := os.Getenv("SHARE_SECRET")
 	if userpass != "" {
 		parts := strings.SplitN(userpass, ":", 2)
 		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
@@ -121,6 +122,9 @@ func main() {
 		app.Use(basicauth.New(basicauth.Config{
 			Users: map[string]string{
 				parts[0]: parts[1],
+			},
+			Next: func(c *fiber.Ctx) bool {
+				return shareSecret != "" && strings.HasPrefix(c.Path(), "/share/")
 			},
 		}))
 	}
@@ -168,7 +172,13 @@ func main() {
 	router.Get("/raw/*", handlers.Raw)
 	router.Post("/api", handlers.Api)
 	router.Get("/api/*", handlers.Api)
-	router.Get("/*", handlers.ProxySite(*ruleset))
+	router.Get("/share", handlers.ShareLink(shareSecret))
+	router.Get("/share/:token/*", handlers.ShareProxy(shareSecret, *ruleset))
+	if shareSecret != "" {
+		router.Get("/*", handlers.ProxySiteViaShare(shareSecret))
+	} else {
+		router.Get("/*", handlers.ProxySite(*ruleset))
+	}
 
 	log.Fatal(app.Listen(":" + *port))
 }

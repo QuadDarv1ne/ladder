@@ -80,6 +80,13 @@ var (
 	httpClient = &http.Client{
 		Timeout: time.Second * time.Duration(defaultTimeout),
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if logURLs {
+				srcURL := ""
+				if len(via) > 0 {
+					srcURL = via[len(via)-1].URL.String()
+				}
+				log.Printf("Redirect %d: %s -> %s", len(via), srcURL, req.URL.String())
+			}
 			if len(via) >= 10 {
 				return fmt.Errorf("stopped after 10 redirects")
 			}

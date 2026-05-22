@@ -212,8 +212,7 @@ func (rs *RuleSet) loadRulesFromRemoteFile(rulesURL string) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		e := fmt.Errorf("failed to load rules from remote url (%s) on '%s'", resp.Status, rulesURL)
-		return errors.Join(e, err)
+		return fmt.Errorf("failed to load rules from remote url (%s) on '%s'", resp.Status, rulesURL)
 	}
 
 	var reader io.Reader

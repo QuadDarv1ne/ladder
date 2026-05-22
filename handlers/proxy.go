@@ -74,6 +74,7 @@ var (
 	cacheTTL         = getCacheTTL()
 	responseCache    = make(map[string]*cacheEntry)
 	cacheMu          sync.RWMutex
+	fsClient         *http.Client
 
 	// Shared HTTP client with connection pooling and redirect limiting
 	httpClient = &http.Client{
@@ -90,6 +91,9 @@ var (
 			IdleConnTimeout:     90 * time.Second,
 		},
 	}
+
+	// FlareSolverr client with generous timeout
+	fsClient = &http.Client{Timeout: 90 * time.Second}
 
 	// Precompiled regexes for HTML rewriting
 	imgSrcRegex    = regexp.MustCompile(`<img\s+([^>]*\s+)?src="(/)([^"]*)"`)
@@ -280,7 +284,7 @@ func getFlareSolverrCookies(targetURL string) (string, error) {
 		return "", err
 	}
 
-	resp, err := http.Post(flareSolverrHost+"/v1", "application/json", bytes.NewBuffer(jsonData))
+	resp, err := fsClient.Post(flareSolverrHost+"/v1", "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return "", err
 	}

@@ -1,0 +1,16 @@
+* text=auto eol=lf
+
+*.go text
+*.yaml text
+*.yml text
+*.md text
+*.html text
+*.css text
+*.js text
+*.json text
+*.sh text eol=lf
+*.bat text eol=crlf
+
+*.png binary
+*.ico binary
+*.svg text

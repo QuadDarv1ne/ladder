@@ -57,11 +57,13 @@ func gzipMerge(rs ruleset.RuleSet, output io.Writer) error {
 	if err != nil {
 		return err
 	}
+	defer func() {
+		if closer, ok := gzipReader.(io.Closer); ok {
+			closer.Close()
+		}
+	}()
 
 	_, err = io.Copy(output, gzipReader)
-	if closer, ok := gzipReader.(io.Closer); ok {
-		closer.Close()
-	}
 	return err
 }
 

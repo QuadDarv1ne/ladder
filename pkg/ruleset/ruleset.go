@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -56,6 +57,15 @@ type Rule struct {
 }
 
 var remoteRegex = regexp.MustCompile(`^https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()!@:%_\+.~#?&\/\/=]*)`)
+
+var httpClient = &http.Client{
+	Timeout: 30 * time.Second,
+	Transport: &http.Transport{
+		MaxIdleConns:        10,
+		IdleConnTimeout:     30 * time.Second,
+		DisableCompression:  false,
+	},
+}
 
 // NewRulesetFromEnv creates a new RuleSet based on the RULESET environment variable.
 // It logs a warning and returns an empty RuleSet if the RULESET environment variable is not set.
@@ -203,7 +213,7 @@ func (rs *RuleSet) loadRulesFromLocalFile(path string) error {
 func (rs *RuleSet) loadRulesFromRemoteFile(rulesURL string) error {
 	var r RuleSet
 
-	resp, err := http.Get(rulesURL)
+	resp, err := httpClient.Get(rulesURL)
 	if err != nil {
 		e := fmt.Errorf("failed to load rules from remote url '%s'", rulesURL)
 		return errors.Join(e, err)
@@ -260,15 +270,14 @@ func (rs *RuleSet) GzipYaml() (io.Reader, error) {
 	pr, pw := io.Pipe()
 
 	go func() {
-		defer pw.Close()
-
 		gw := gzip.NewWriter(pw)
-		defer gw.Close()
 
-		if err := yaml.NewEncoder(gw).Encode(rs); err != nil {
-			gw.Close() // Ensure to close the gzip writer
+		err := yaml.NewEncoder(gw).Encode(rs)
+		gw.Close()
+		if err != nil {
 			pw.CloseWithError(err)
-			return
+		} else {
+			pw.Close()
 		}
 	}()
 

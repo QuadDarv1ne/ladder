@@ -9,10 +9,12 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"ladder/pkg/ruleset"
@@ -52,6 +54,13 @@ type FlareSolverrResponse struct {
 	Message string `json:"message"`
 }
 
+type cacheEntry struct {
+	body      string
+	status    int
+	header    http.Header
+	expiresAt time.Time
+}
+
 var (
 	UserAgent        = getenv("USER_AGENT", "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)")
 	ForwardedFor     = getenv("X_FORWARDED_FOR", "66.249.66.1")
@@ -62,6 +71,9 @@ var (
 	defaultTimeout   = 15 // in seconds
 	basePath         = normalizeBasePath(os.Getenv("BASE_PATH"))
 	logURLs          = os.Getenv("LOG_URLS") == "true"
+	cacheTTL         = getCacheTTL()
+	responseCache    = make(map[string]*cacheEntry)
+	cacheMu          sync.RWMutex
 
 	// Shared HTTP client with connection pooling and redirect limiting
 	httpClient = &http.Client{
@@ -84,6 +96,52 @@ var (
 	scriptSrcRegex = regexp.MustCompile(`<script\s+([^>]*\s+)?src="(/)([^"]*)"`)
 	srcsetRegex    = regexp.MustCompile(`srcset="(/[^"]*)"`)
 )
+
+func getCacheTTL() time.Duration {
+	v := os.Getenv("CACHE_TTL")
+	if v == "" {
+		return 0
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		log.Printf("WARN: invalid CACHE_TTL value %q, caching disabled", v)
+		return 0
+	}
+	return d
+}
+
+func cacheGet(key string) *cacheEntry {
+	if cacheTTL <= 0 {
+		return nil
+	}
+	cacheMu.RLock()
+	e, ok := responseCache[key]
+	cacheMu.RUnlock()
+	if !ok {
+		return nil
+	}
+	if time.Now().After(e.expiresAt) {
+		cacheMu.Lock()
+		delete(responseCache, key)
+		cacheMu.Unlock()
+		return nil
+	}
+	return e
+}
+
+func cacheSet(key string, body string, status int, header http.Header) {
+	if cacheTTL <= 0 {
+		return
+	}
+	cacheMu.Lock()
+	responseCache[key] = &cacheEntry{
+		body:      body,
+		status:    status,
+		header:    header,
+		expiresAt: time.Now().Add(cacheTTL),
+	}
+	cacheMu.Unlock()
+}
 
 func normalizeBasePath(p string) string {
 	if p == "" {
@@ -111,6 +169,46 @@ func init() {
 			log.Printf("WARN: invalid HTTP_TIMEOUT value %q, using default %ds", timeoutStr, defaultTimeout)
 		}
 	}
+
+	go func() {
+		sig := make(chan os.Signal, 1)
+		signal.Notify(sig, syscall.SIGHUP)
+		for range sig {
+			log.Println("INFO: SIGHUP received, reloading ruleset")
+			reloadRuleset()
+		}
+	}()
+}
+
+func reloadRuleset() {
+	path := os.Getenv("RULESET")
+	if path == "" {
+		log.Println("WARN: RULESET not set, skipping reload")
+		return
+	}
+	rs, err := ruleset.NewRuleset(path)
+	if err != nil {
+		log.Printf("ERROR: failed to reload ruleset: %v", err)
+		return
+	}
+	rulesSetMu.Lock()
+	rulesSet = rs
+	rulesSetMu.Unlock()
+
+	// Rebuild allowedDomains if ALLOWED_DOMAINS_RULESET is set
+	if os.Getenv("ALLOWED_DOMAINS_RULESET") == "true" {
+		allowedDomainsStr := os.Getenv("ALLOWED_DOMAINS")
+		var ad []string
+		if allowedDomainsStr != "" {
+			ad = strings.Split(allowedDomainsStr, ",")
+		}
+		ad = append(ad, rs.Domains()...)
+		rulesSetMu.Lock()
+		allowedDomains = ad
+		rulesSetMu.Unlock()
+	}
+
+	log.Printf("INFO: ruleset reloaded — %d rules for %d domains", rs.Count(), rs.DomainCount())
 }
 
 // extracts a URL from the request ctx. If the URL in the request
@@ -305,9 +403,27 @@ func fetchSite(urlpath string, queries map[string]string) (string, *http.Request
 
 	// Modify the URI according to ruleset
 	rule := fetchRule(u.Host, u.Path)
+	if logURLs {
+		log.Printf("DEBUG: matched rule for %s%s — domain=%s headers=%+v injections=%d",
+			u.Host, u.Path, rule.Domain, rule.Headers, len(rule.Injections))
+	}
 	url, err := modifyURL(u.String()+urlQuery, rule)
 	if err != nil {
 		return "", nil, nil, err
+	}
+
+	// Check cache
+	cacheKey := url + "?" + urlQuery
+	if cached := cacheGet(cacheKey); cached != nil {
+		if logURLs {
+			log.Printf("CACHE: hit for %s", cacheKey)
+		}
+		cachedResp := &http.Response{
+			StatusCode: cached.status,
+			Header:     cached.header,
+			Body:       io.NopCloser(strings.NewReader(cached.body)),
+		}
+		return cached.body, nil, cachedResp, nil
 	}
 
 	// Fetch the site
@@ -373,18 +489,25 @@ func fetchSite(urlpath string, queries map[string]string) (string, *http.Request
 	}
 
 	if rule.Headers.CSP != "" {
-		// log.Println(rule.Headers.CSP)
 		resp.Header.Set("Content-Security-Policy", rule.Headers.CSP)
 	} else {
 		resp.Header.Del("Content-Security-Policy")
 	}
 
-	// log.Print("rule", rule) TODO: Add a debug mode to print the rule
 	body := rewriteHtml(bodyB, u, rule)
 	body, err = applyRules(body, rule)
 	if err != nil {
 		log.Printf("WARNING: applyRules error: %v", err)
 	}
+
+	// Cache successful responses
+	if resp.StatusCode == http.StatusOK {
+		cacheSet(cacheKey, body, resp.StatusCode, resp.Header.Clone())
+		if logURLs {
+			log.Printf("CACHE: stored for %s (TTL=%s)", cacheKey, cacheTTL)
+		}
+	}
+
 	return body, req, resp, nil
 }
 

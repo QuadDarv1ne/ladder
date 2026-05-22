@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	"ladder/handlers"
 	"ladder/handlers/cli"
@@ -131,9 +132,11 @@ func main() {
 
 	if os.Getenv("NOLOGS") != "true" {
 		app.Use(func(c *fiber.Ctx) error {
-			log.Println(c.Method(), c.Path())
-
-			return c.Next()
+			start := time.Now()
+			err := c.Next()
+			dur := time.Since(start)
+			log.Printf("%s %s %d %s", c.Method(), c.Path(), c.Response().StatusCode(), dur)
+			return err
 		})
 	}
 
@@ -159,6 +162,7 @@ func main() {
 		return c.Send(cssData)
 	})
 
+	router.Get("/health", handlers.Health)
 	router.Get("/ruleset", handlers.Ruleset)
 	router.Get("/raw/*", handlers.Raw)
 	router.Post("/api", handlers.Api)

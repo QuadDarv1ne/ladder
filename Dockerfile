@@ -19,6 +19,6 @@ COPY --from=build /go/src/ladder/ladder .
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD ["/app/ladder", "--help"] || exit 1
+  CMD ["/app/ladder", "--help"]
 
 ENTRYPOINT ["/app/ladder"]
